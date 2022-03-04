@@ -1,0 +1,130 @@
+---
+title: "STAA 566 - HW3"
+author: "Suzanne Brenimer"
+date: "3/3/2022"
+output: html_document
+knit: (function(input_file, encoding){out_dir <- 'docs';
+  rmarkdown::render(input_file, encoding=encoding,
+  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE)
+
+require(tidyverse)
+require(lubridate)
+require(tigris)
+require(sf)
+require(ggplot2)
+require(plotly)
+require(viridis)
+require(ggthemes)
+```
+
+## Data
+
+Denver Statistical Neighborhoods boundaries were obtained from https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-statistical-neighborhoods.
+
+Denver traffic incidents from 2020 (and additional years) were obtained from https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-traffic-accidents.
+
+My goal was to explore whether there were certain neighborhoods, or roadways, that were more dangerous in terms of fatal traffic accidents and pedestrian involvement.
+
+```{r data, results="hide"}
+# Data sets
+# Load traffic incidents data from Denver website
+# traf <- read.csv("https://www.denvergov.org/media/gis/DataCatalog/traffic_accidents/csv/traffic_accidents.csv")
+# or load from my local copy (faster for testing):
+traf <- read.csv("data/traffic_accidents.csv")
+
+# Prepare traffic data set
+traf <- traf %>%
+  filter(neighborhood_id != "") %>%
+  mutate(incident_yr = as.factor(year(first_occurrence_date)),
+         FatalityNum = as.factor(FATALITIES),
+         PedestrianInvolved = as.factor(pedestrian_ind > 0))
+
+
+traf_2020 <- traf %>%
+  filter(incident_yr %in% c(2019,2020,2021) )
+
+traf_2020_fatal <- traf_2020 %>%
+  filter(FATALITIES > 0)
+
+traf_2020_fatal_ped <- traf_2020_fatal %>%
+  filter(pedestrian_ind > 0)
+
+traf_2020_fatal_nped <- traf_2020_fatal %>%
+  filter(pedestrian_ind == 0 | is.na(pedestrian_ind)) 
+
+traf_2020_fatal_bike <- traf_2020_fatal %>%
+  filter(bicycle_ind > 0)
+
+traf_2020_sum <- traf_2020 %>%
+  group_by(neighborhood_id) %>%
+  summarise(nTotal = n(),
+            nFatal = sum(FATALITIES > 0,na.rm=T),
+            nSerInj = sum(SERIOUSLY_INJURED > 0,na.rm=T),
+            tFatal = sum(FATALITIES,na.rm=T),
+            tSerInj = sum(SERIOUSLY_INJURED,na.rm=T),
+            nPedInv = sum(pedestrian_ind > 0,na.rm=T),
+            nBicInv = sum(bicycle_ind > 0,na.rm=T),
+            tPedInv = sum(pedestrian_ind,na.rm=T),
+            tBicInv = sum(bicycle_ind,na.rm=T),
+            nBoP_FoSI = sum((pedestrian_ind > 0 | bicycle_ind > 0) & (FATALITIES > 0 | SERIOUSLY_INJURED > 0), na.rm=T)) %>%
+  ungroup()
+  
+
+
+# Prepare geospatial data for Denver neighborhoods
+# this was downloaded from Denver 
+dennb <- read_sf(dsn="data/statistical_neighborhoods.gdb",layer="statistical_neighborhoods")
+
+# Prepare geospatial data for Denver roads
+# Road data
+
+co_rds <- primary_secondary_roads(state="Colorado", year=2020)
+# co_interstates <- co_rds %>%
+#   filter(RTTYP %in% c("I","C"))
+# co_hwys <- co_rds %>%
+#   filter(RTTYP %in% c("I","C") == FALSE)
+
+
+# Join neighborhoods + traffic data
+dennb_traf_2020 <- left_join(dennb, traf_2020,
+                             by = c("NBHD_NAME" = "neighborhood_id"))
+
+dennb_traf_2020_fatal <- right_join(dennb, traf_2020_fatal,
+                             by = c("NBHD_NAME" = "neighborhood_id"))
+
+dennb_traf_2020_sum <- right_join(dennb, traf_2020_sum,
+                             by = c("NBHD_NAME" = "neighborhood_id"))
+
+# Change geometries to work with plotly
+dennb_traf_2020_sum <- st_cast(dennb_traf_2020_sum, to="MULTIPOLYGON")
+
+```
+
+## Interactive Map with Plotly
+
+```{r plotting, fig.width = 8}
+# Plot Denver neighborhoods and roads
+plot1 <- ggplot(data = dennb_traf_2020_sum) +
+  # geom_sf(aes(fill = nTotal/(sum(nTotal))*100)) +
+  geom_sf(aes(fill = nTotal, label=NBHD_NAME)) 
+
+# Add prominent roads
+plot2 <- plot1 +
+  geom_sf(data = co_rds, aes(label = FULLNAME)) 
+
+# Plot coordinates of fatal accidents
+plot3 <- plot2 +
+  geom_point(data = traf_2020_fatal, aes(x=geo_lon,y=geo_lat, label=FatalityNum, color=PedestrianInvolved), alpha=0.80) +
+  scale_color_manual(values = c("orange","red")) +
+  theme_minimal() + coord_sf(ylim = c(39.6,39.92), xlim=c(-105.15,-104.6)) +
+  labs(title="Traffic Accidents by Denver Neighborhood, 2019-2021",
+       x = "", y="", fill="Total Number of Accidents",
+       color="Pedestrian Involved")
+
+ggplotly(plot3) %>% config(scrollZoom = TRUE)
+
+```
