@@ -32,9 +32,9 @@ My goal was to explore whether there were certain neighborhoods, or roadways, th
 ```{r data, results="hide"}
 # Data sets
 # Load traffic incidents data from Denver website
-# traf <- read.csv("https://www.denvergov.org/media/gis/DataCatalog/traffic_accidents/csv/traffic_accidents.csv")
+traf <- read.csv("https://www.denvergov.org/media/gis/DataCatalog/traffic_accidents/csv/traffic_accidents.csv")
 # or load from my local copy (faster for testing):
-traf <- read.csv("data/traffic_accidents.csv")
+# traf <- read.csv("data/traffic_accidents.csv")
 
 # Prepare traffic data set
 traf <- traf %>%
